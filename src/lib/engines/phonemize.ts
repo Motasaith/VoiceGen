@@ -20,13 +20,22 @@ import { phonemize as phonemizerEn } from "phonemizer";
  *     instantiate a WASM module per call.
  *
  * So English (the common case) takes the fast path, and everything else
- * goes through espeak-ng. Hindi, Japanese and Mandarin are deliberately not
- * offered: neither build ships their dictionaries, and eSpeak silently
- * falls back to spelling the characters out in English, which sounds like
- * nonsense rather than failing loudly.
+ * goes through espeak-ng, whose embedded data covers every language it
+ * ships -- Devanagari and Nastaliq included.
+ *
+ * The eSpeak input-encoding flag must be written "-b1", not "-b=1". With
+ * the "=" form eSpeak parses the value as 0 and decodes the text as 8-bit
+ * Latin-1, so every multi-byte character is read as the *name* of an
+ * accented letter: Urdu came out as "o stroke, u grave", Spanish "nino"
+ * as "n a-tilde o". That single character was the whole reason non-Latin
+ * scripts looked unsupported.
+ *
+ * Japanese and Mandarin remain withheld for real reasons: eSpeak has no
+ * kanji reading dictionary, and its Mandarin output carries numeric tone
+ * markers that are not in Kokoro's vocabulary.
  */
 export const SUPPORTED_ESPEAK = new Set([
-  "en-us", "en-gb", "es", "fr-fr", "it", "pt-br",
+  "en-us", "en-gb", "es", "fr-fr", "it", "pt-br", "hi", "ur",
 ]);
 
 /** eSpeak's --ipa=3 inserts zero-width joiners that are not in Kokoro's vocab. */
@@ -36,10 +45,13 @@ async function espeakOther(text: string, lang: string): Promise<string> {
   const mod: any = await import("espeak-ng");
   const ESpeakNg = mod.default ?? mod;
   const instance = await ESpeakNg({
-    arguments: ["--phonout", "out", "--sep=", "-q", "-b=1", "--ipa=3", "-v", lang, text],
+    arguments: ["--phonout", "out", "--sep=", "-q", "-b1", "--ipa=3", "-v", lang, text],
   });
   const raw: string = instance.FS.readFile("out", { encoding: "utf8" });
-  return raw.replace(ZWJ, "").trim();
+  // eSpeak ends each sentence with a newline, which Kokoro has no token for
+  // and therefore drops silently -- gluing the last word of one sentence to
+  // the first of the next. A space keeps the boundary the model needs.
+  return raw.replace(ZWJ, "").replace(/\s*\n\s*/g, " ").trim();
 }
 
 async function espeak(text: string, lang: string): Promise<string[]> {
@@ -182,10 +194,21 @@ export async function phonemize(text: string, espeakLang = "en-us"): Promise<str
     }),
   );
 
-  let processed = parts.join("")
-    .replace(/ʲ/g, "j")
-    .replace(/r/g, "ɹ")
-    .replace(/x/g, "k")
+  // "r -> ɹ" and "x -> k" are English spelling conventions inherited
+  // from kokoro-js, not vocabulary limits: Kokoro has tokens for r, ɾ
+  // and x. In Hindi and Urdu they would erase real contrasts -- the
+  // tap/trill would become an English R, and Urdu's /x/ (خ) would
+  // collapse into /k/ -- so they are skipped there. ɬ has no token, so
+  // that mapping is kept for every language.
+  const indic = espeakLang === "hi" || espeakLang === "ur";
+
+  let processed = parts.join("").replace(/ʲ/g, "j");
+  if (!indic) processed = processed.replace(/r/g, "ɹ").replace(/x/g, "k");
+  // Kokoro has no token for ʐ, which eSpeak emits for Urdu's ظ, so it would be
+  // dropped outright -- ظالم would lose its first consonant and read "aalim".
+  // Urdu merges ز ذ ض ظ into /z/, so this is the correct realisation anyway.
+  if (indic) processed = processed.replace(/ʐ/g, "z");
+  processed = processed
     .replace(/ɬ/g, "l")
     .replace(/ z(?=[;:,.!?¡¿\u2014…"«»“” ]|$)/g, "z");
 
@@ -199,5 +222,7 @@ export async function phonemize(text: string, espeakLang = "en-us"): Promise<str
     }
   }
 
-  return processed.trim();
+  // Kokoro's vocabulary contains combining marks but not precomposed
+  // nasal vowels, so decompose. This is a no-op for the Latin languages.
+  return processed.normalize("NFD").trim();
 }

@@ -16,7 +16,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { CATALOG, LANGUAGES, PRESET_BLENDS, type BlendComponent } from "@/lib/catalog";
+import { CATALOG, LANGUAGES, PRESET_BLENDS, espeakForScript, type BlendComponent } from "@/lib/catalog";
 import { phonemize } from "./phonemize";
 import { MODELS_DIR } from "@/lib/paths";
 
@@ -186,7 +186,11 @@ export async function synthesize(
   const { model, tokenizer } = await load(dtype);
   const { Tensor } = await import("@huggingface/transformers");
 
-  const phonemes = await phonemize(text, espeakFor(voice, lang));
+  // `lang` selects the voice's language; the script the text is actually
+  // written in then settles Hindi vs Urdu, which share these voices and are
+  // the same spoken language. Without this, Urdu pasted into a Hindi voice is
+  // spelled out letter by letter ("arbi be, arbi re") instead of spoken.
+  const phonemes = await phonemize(text, espeakForScript(text, espeakFor(voice, lang)));
   if (!phonemes) return new Float32Array(0);
 
   const { input_ids } = tokenizer(phonemes, { truncation: true });

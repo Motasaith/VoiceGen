@@ -40,17 +40,72 @@ export const LANGUAGES: Record<string, { label: string; espeak: string; flag: st
 /**
  * Languages this build can actually pronounce.
  *
- * Kokoro ships voices for nine languages, but the JavaScript eSpeak builds
- * only carry dictionary data for the Latin-script ones. For Hindi, Japanese
- * and Mandarin, eSpeak silently spells the characters out in English,
- * which produces confident-sounding nonsense. Those voices are therefore
- * withheld rather than shipped broken.
+ * The bundled eSpeak carries data for every language it ships, Hindi
+ * included; what used to break non-Latin scripts was an input-encoding
+ * flag, not missing dictionaries. See lib/engines/phonemize.
+ *
+ * Japanese and Mandarin stay withheld: eSpeak cannot read kanji, and its
+ * Mandarin phonemes carry numeric tone markers Kokoro has no tokens for.
  */
-export const SUPPORTED_LANG_PREFIXES = new Set(["a", "b", "e", "f", "i", "p"]);
+export const SUPPORTED_LANG_PREFIXES = new Set(["a", "b", "e", "f", "h", "i", "p"]);
 
 export const UNSUPPORTED_NOTE =
-  "Japanese, Mandarin and Hindi need eSpeak dictionary data that has no " +
-  "JavaScript build. Those voices are unavailable here.";
+  "Japanese and Mandarin are unavailable: eSpeak cannot read kanji, and its " +
+  "Mandarin output uses tone markers Kokoro has no tokens for.";
+
+/**
+ * Languages with no Kokoro voice of their own that a shipped voice can still
+ * speak, by overriding only the phonemiser.
+ *
+ * Urdu and Hindi are the same spoken language (Hindustani) written in two
+ * scripts, so the Hindi speakers render Urdu text correctly once eSpeak is
+ * pointed at the Nastaliq dictionary. Pass `lang` on any synthesis request.
+ */
+export const LANGUAGE_OVERRIDES = [
+  {
+    code: "ur",
+    label: "Urdu",
+    flag: "🇵🇰",
+    voices: ["hf_alpha", "hf_beta", "hm_omega", "hm_psi"],
+    note:
+      "Urdu text spoken by the Hindi voices. Same phonology, different script, " +
+      "so the result is accurate Urdu; vocabulary drawn from Persian or Arabic " +
+      "is the most likely place to hear a Hindi lean.",
+  },
+] as const;
+
+/**
+ * Pick the eSpeak dictionary that matches the script the text is written in.
+ *
+ * A Hindi voice handed Nastaliq is the failure this exists to prevent: eSpeak's
+ * Hindi dictionary has no mapping for Arabic script, so instead of failing it
+ * spells out every character by its *name* -- "arbi be, arbi re, arbi alif" --
+ * turning a four-second sentence into half a minute of gibberish. Script is an
+ * unambiguous signal, so detect it rather than relying on the caller.
+ *
+ * Only ever chooses between dictionaries for one spoken language, so it cannot
+ * silently swap a voice's language out from under the caller.
+ */
+const SCRIPT_RANGES: { lang: string; re: RegExp }[] = [
+  // Arabic block + Arabic Supplement/Extended-A, which is where Urdu's
+  // retroflex and aspirate letters (ٹ ڈ ڑ ھ) live.
+  { lang: "ur", re: /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/g },
+  { lang: "hi", re: /[ऀ-ॿ]/g },
+];
+
+export function espeakForScript(text: string, baseLang: string): string {
+  // Hindi and Urdu are the only pair that shares a voice, so this is the only
+  // place a script check can change the answer.
+  if (baseLang !== "hi" && baseLang !== "ur") return baseLang;
+
+  let best = baseLang;
+  let bestCount = 0;
+  for (const { lang, re } of SCRIPT_RANGES) {
+    const count = (text.match(re) ?? []).length;
+    if (count > bestCount) { best = lang; bestCount = count; }
+  }
+  return bestCount > 0 ? best : baseLang;
+}
 
 /** Every voice id shipped in Kokoro v1.0. */
 export const ALL_VOICE_IDS = [
@@ -115,6 +170,10 @@ const NOTES: Record<string, Note> = {
   bm_fable:    { note: "Storyteller cadence, great for fiction and fairy tales.", tier: "great", tags: ["british", "storytelling"] },
   bm_daniel:   { note: "Measured, professional British male.", tier: "good", tags: ["british", "formal"] },
   bm_lewis:    { note: "Relaxed British male.", tier: "standard", tags: ["british", "casual"] },
+  hf_alpha:    { note: "Clear Hindi female, even and neutral. Also speaks Urdu.", tier: "great", tags: ["hindi", "urdu", "narration"] },
+  hf_beta:     { note: "Softer Hindi female, lighter delivery. Also speaks Urdu.", tier: "good", tags: ["hindi", "urdu"] },
+  hm_omega:    { note: "Steady Hindi male narrator. Also speaks Urdu.", tier: "great", tags: ["hindi", "urdu", "narration"] },
+  hm_psi:      { note: "Warmer Hindi male, conversational. Also speaks Urdu.", tier: "good", tags: ["hindi", "urdu"] },
 };
 
 const TIER_ORDER: Record<VoiceMeta["tier"], number> = {
