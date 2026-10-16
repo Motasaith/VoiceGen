@@ -75,12 +75,45 @@ Raspberry Pi 4/5 (64-bit OS) works for short narration but is slow. Phones and
 tablets are not supported directly; run it on a computer or server and open
 the web UI from the device's browser over your network.
 
-### First run
+### Downloading the models (required, one time)
 
-1. Open <http://localhost:3000>.
-2. Go to **Settings, then Models**, and install the narration voices (~90 MB).
-3. Optional: install the cloning model (~1.1 GB) from the same page.
-4. Open the **Studio**, pick a voice, paste text, press generate.
+The app code does not include the AI models. They are downloaded from Hugging
+Face the first time you ask for them, then stored in the `data/models/` folder.
+Nothing works until at least the narration model is installed.
+
+1. Start the app (`npm start`) and open <http://localhost:3000>.
+2. Click **Settings** in the top navigation. The **Models** card has two rows:
+
+| Model | Needed for | Size | Button |
+|---|---|---|---|
+| Narration voices (Kokoro) | Studio, Voices, API. **Required** | ~90 MB | **Install** |
+| Voice cloning (Chatterbox-Turbo) | Clone page only. Optional | ~1.1 GB | **Install** |
+
+3. Click **Install** on the row you want. A progress bar shows the download.
+   You can leave the page while it continues. If it fails (network drop), the
+   button changes to **Retry**.
+4. When the row says **Installed**, go to the **Studio**, pick a voice, paste
+   text and generate.
+
+Good to know:
+
+- **Precision:** the default (q8, ~90 MB) is the best balance. In
+  **Settings, then Quality** you can pick a smaller (q4, lower quality) or
+  larger (fp32, heavier) variant. The new variant downloads automatically the
+  next time you generate.
+- **Individual voices download on first use.** The 41 voice files are tiny
+  (a few hundred KB each) and each one is fetched the first time you pick it.
+  To work fully offline, use each voice you need once while online.
+- **Internet is only needed for downloads.** After that, generation is 100%
+  local and nothing leaves your machine.
+- **Behind a proxy or firewall?** The machine must be able to reach
+  `huggingface.co`. If it cannot, download on another machine and copy that
+  machine's `data/models/` folder into this project's `data/models/`.
+- **Moving or backing up:** copy the `data/` folder. It holds the models,
+  your cloned voices, history and database.
+- **Check or free space:** Settings shows what is installed and its size. To
+  remove a model from disk, delete its folder inside `data/models/`. The
+  **Release models now** button only frees memory, it does not delete files.
 
 ### Options
 
