@@ -4,25 +4,148 @@ Local AI text-to-speech and voice cloning, built entirely in TypeScript on
 Next.js 15. No Python, no PyTorch, no native compilation, nothing leaves the
 machine.
 
-> The Python version of this app lives in `D:\try\VoiceGen` and is untouched.
-> This is the JavaScript rebuild.
-
 ---
 
-## Quick start
+## Install and run
 
-```bash
+Everything is pure JavaScript with prebuilt binaries, so the steps are the same
+on every platform. The only real requirement is **Node.js 22.13 or newer**
+(Node 24 LTS is what it is developed on). It needs `node:sqlite`, which is
+built into Node, so there is nothing to compile and no Python or ffmpeg.
+
+| Requirement | Detail |
+|---|---|
+| Node.js | 22.13+ (check with `node -v`) |
+| RAM | ~1 GB free for narration, ~2 GB if you also use cloning |
+| Disk | ~90 MB for narration voices, ~1.1 GB more for cloning |
+| Network | Needed once, to download models from Hugging Face. Offline afterwards |
+| CPU | x64 or arm64. A GPU is not used |
+
+### Windows
+
+1. Install Node.js from <https://nodejs.org> (LTS), or in PowerShell:
+   `winget install OpenJS.NodeJS.LTS`
+2. Get the code and start it:
+
+```powershell
+git clone <your-repo-url> voicegen-web
+cd voicegen-web
 npm install
 npm run build
 npm start
 ```
 
-Or double-click `start.bat`, which does all three and opens the browser.
+Or just double-click **`start.bat`**. It installs, builds (first run only),
+opens the browser and starts the server.
 
-Then open <http://localhost:3000>, go to **Settings → Models**, and install the
-narration voices (~90 MB). Cloning is a separate, optional install of about 1.1 GB.
+### Linux
 
-For development with hot reload: `npm run dev`.
+```bash
+# Node 22+ (Debian/Ubuntu example, using NodeSource)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs git
+
+git clone <your-repo-url> voicegen-web
+cd voicegen-web
+npm install
+npm run build
+npm start
+```
+
+Fedora: `sudo dnf install nodejs git`. Arch: `sudo pacman -S nodejs npm git`.
+Any distro works if `node -v` reports 22.13 or newer; `nvm install 22` is the
+simplest route when your package manager is behind. The prebuilt ONNX Runtime
+binary needs glibc, so on Alpine use a glibc-based image instead.
+
+### macOS
+
+```bash
+brew install node git
+git clone <your-repo-url> voicegen-web
+cd voicegen-web
+npm install && npm run build && npm start
+```
+
+Works on both Intel and Apple Silicon (CPU inference).
+
+### Docker (any host, including a server or NAS)
+
+```dockerfile
+FROM node:24-slim
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+```bash
+docker build -t voicegen .
+docker run -d -p 3000:3000 -v voicegen-data:/app/data voicegen
+```
+
+Mount `/app/data` as a volume so downloaded models, voices and your history
+survive container rebuilds.
+
+### Android, Raspberry Pi and other platforms
+
+Anything that runs Node 22.13+ on x64 or arm64 with glibc can run it. A
+Raspberry Pi 4/5 (64-bit OS) works for short narration but is slow. Phones and
+tablets are not supported directly; run it on a computer or server and open
+the web UI from the device's browser over your network.
+
+### First run
+
+1. Open <http://localhost:3000>.
+2. Go to **Settings, then Models**, and install the narration voices (~90 MB).
+3. Optional: install the cloning model (~1.1 GB) from the same page.
+4. Open the **Studio**, pick a voice, paste text, press generate.
+
+### Options
+
+| Setting | How |
+|---|---|
+| Different port | `npx next start -p 8080` (Linux/macOS: `PORT=8080 npm start`) |
+| Reach it from other devices | `npx next start -H 0.0.0.0` then browse to `http://<your-ip>:3000`. There is no login, so only do this on a network you trust |
+| Public domain | set `NEXT_PUBLIC_SITE_URL=https://example.com` **before** `npm run build` |
+| Hot reload for development | `npm run dev` |
+| Where data lives | the `data/` folder in the project (models, audio, voices, database). Back it up to keep your voices |
+
+Windows PowerShell sets variables like this: `$env:PORT=8080; npm start`.
+
+### Troubleshooting
+
+- **`node:sqlite` not found or `ERR_UNKNOWN_BUILTIN_MODULE`**: Node is too old. Upgrade to 22.13+.
+- **`EPERM` renaming files inside `.next-dev` on Windows**: delete the `.next-dev` folder and run `npm run dev` again. If it persists, run `npm run build && npm start` instead.
+- **Model download fails**: the machine needs access to `huggingface.co` the first time. Retry from Settings, then Models.
+- **Generation is slow**: expected on older CPUs, see "Speed, honestly" below. Queue a job and close the tab.
+- **Port already in use**: start on another port as shown above.
+
+---
+
+## Using every feature
+
+| Feature | Where | How |
+|---|---|---|
+| Narration | **Studio** | Pick a voice, paste text, set speed and loudness, generate. Runs as a background job |
+| Voice browser | **Voices** | Preview all voices, filter by language, gender and tags |
+| Blending | **Voices** | Pick 2 to 4 voices, set weights, save as a named blend, then use it like any voice |
+| Cloning | **Clone** | 4 steps: upload 10 to 20 s of clean audio, enrol, test, save. Needs the cloning model |
+| Long scripts | **Studio** | Paste the whole script. It is split at sentence boundaries and stitched back |
+| Pauses | **Studio** | `[pause]` or `[pause:1.5]` inside the text |
+| Dialogue | **Studio** | Turn on dialogue mode, write `[Alex] line`, assign each speaker a voice |
+| Subtitles | **Studio** | Tick subtitles to get matching `.srt` and `.vtt` files |
+| Loudness | **Studio** | −14 LUFS (YouTube/Facebook), −16 or −19 |
+| History | **Library** | Replay, download or delete past jobs |
+| Automation | **Automate** | HTTP API docs, see "Using it from code" below |
+| Memory and quality | **Settings** | Unload models, check disk use, tune quality |
+
+**Hindi and Urdu:** pick a Hindi voice (`hf_alpha`, `hf_beta`, `hm_omega`,
+`hm_psi`) and paste Devanagari or Urdu (Nastaliq) text. The script is detected
+automatically. Kokoro tends to speak Indic text too quickly, so set speed to
+about 0.6 to 0.7 for natural pacing.
 
 ---
 
@@ -30,7 +153,7 @@ For development with hot reload: `npm run dev`.
 
 | | |
 |---|---|
-| **Narration** | Kokoro-82M with 37 voices across 6 languages |
+| **Narration** | Kokoro-82M with 41 voices across 7 languages, plus Urdu |
 | **Voice blending** | Mix 2–4 voices with weights into a genuinely new speaker |
 | **Voice cloning** | Chatterbox-Turbo creates a new voice from 10–20 seconds of audio |
 | **Long-form** | Paste a whole script; chunked on sentence boundaries, stitched back together |
@@ -45,13 +168,17 @@ For development with hot reload: `npm run dev`.
 ## Languages
 
 Working: **English (US)** · **English (UK)** · **Spanish** · **French** ·
-**Italian** · **Portuguese (BR)**, with 37 voices total.
+**Italian** · **Portuguese (BR)** · **Hindi** · **Urdu**, with 41 voices total.
 
-Kokoro also ships Japanese, Mandarin and Hindi voices, but **they are
-deliberately not exposed here**. Neither JavaScript eSpeak build carries
-dictionary data for those scripts, so eSpeak silently spells the characters out
-in English, producing confident-sounding nonsense rather than a loud failure. The Python
-version does support them.
+Urdu has no voice of its own in Kokoro. The Hindi voices speak it, because the
+two are one spoken language in two scripts; the app detects the script and picks
+the right eSpeak dictionary. Words borrowed from Persian or Arabic may carry a
+slight Hindi accent.
+
+Kokoro also ships Japanese and Mandarin voices, but **they are deliberately not
+exposed here**: eSpeak cannot read kanji, and its Mandarin output uses tone
+markers Kokoro has no tokens for. The result would be confident-sounding
+nonsense rather than a loud failure.
 
 ---
 
