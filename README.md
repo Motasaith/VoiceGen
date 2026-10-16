@@ -68,27 +68,6 @@ npm install && npm run build && npm start
 
 Works on both Intel and Apple Silicon (CPU inference).
 
-### Docker (any host, including a server or NAS)
-
-```dockerfile
-FROM node:24-slim
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-EXPOSE 3000
-CMD ["npm", "start"]
-```
-
-```bash
-docker build -t voicegen .
-docker run -d -p 3000:3000 -v voicegen-data:/app/data voicegen
-```
-
-Mount `/app/data` as a volume so downloaded models, voices and your history
-survive container rebuilds.
-
 ### Android, Raspberry Pi and other platforms
 
 Anything that runs Node 22.13+ on x64 or arm64 with glibc can run it. A
