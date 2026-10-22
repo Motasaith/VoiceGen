@@ -12,6 +12,9 @@
     "bench": "node scripts/bench.mjs",
     "check": "node scripts/kokoro-check.mjs"
   },
+  "overrides": {
+  "onnxruntime-node": "$onnxruntime-node"
+  },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
     "@huggingface/transformers": "^3.7.6",
